@@ -25,15 +25,16 @@ def main_menu_kb(admin_ids: Optional[list[int]] = None, user_id: Optional[int] =
     builder.button(text="Профиль", callback_data="menu:profile")
     builder.button(text="Расписание", callback_data="menu:schedule")
     builder.button(text="Вес", callback_data="menu:weight")
+    builder.button(text="Калории", callback_data="menu:calories")
     builder.button(text="Отчет", callback_data="menu:report")
     builder.button(text="Статистика", callback_data="menu:stats")
     
     # Добавляем кнопку админа только для админов
     if admin_ids and user_id and user_id in admin_ids:
         builder.button(text="🔐 Админ-панель", callback_data="menu:admin")
-        builder.adjust(2, 2, 1, 1)
+        builder.adjust(2, 2, 1, 1, 1)
     else:
-        builder.adjust(2, 2, 1)
+        builder.adjust(2, 2, 2, 1)
     
     return builder
 
@@ -95,6 +96,34 @@ def time_mode_kb() -> InlineKeyboardBuilder:
     builder.button(text="Разное время для каждого дня", callback_data="timemode:multiple")
     builder.adjust(1, 1)
     return builder
+
+
+def gender_kb() -> InlineKeyboardBuilder:
+    b = InlineKeyboardBuilder()
+    b.button(text="Мужской", callback_data="gender:m")
+    b.button(text="Женский", callback_data="gender:f")
+    b.adjust(2)
+    return b
+
+
+def activity_kb() -> InlineKeyboardBuilder:
+    b = InlineKeyboardBuilder()
+    b.button(text="Почти нет движения", callback_data="activity:sedentary")
+    b.button(text="1–3 дня лёгкая активность", callback_data="activity:light")
+    b.button(text="3–5 дней умеренная", callback_data="activity:moderate")
+    b.button(text="6–7 дней активность", callback_data="activity:active")
+    b.button(text="Тяжёлые тренировки / работа", callback_data="activity:very_active")
+    b.adjust(1, 1, 1, 1, 1)
+    return b
+
+
+def goal_kb() -> InlineKeyboardBuilder:
+    b = InlineKeyboardBuilder()
+    b.button(text="Похудение", callback_data="goal:lose")
+    b.button(text="Удержание веса", callback_data="goal:maintain")
+    b.button(text="Набор массы", callback_data="goal:gain")
+    b.adjust(1, 1, 1)
+    return b
 
 
 def admin_panel_kb() -> InlineKeyboardBuilder:

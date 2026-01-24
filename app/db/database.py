@@ -131,3 +131,28 @@ async def init_db(db: Database) -> None:
         )
         await db.execute("DROP TABLE workout_schedule;")
         await db.execute("ALTER TABLE workout_schedule_new RENAME TO workout_schedule;")
+
+    # Калории и антропометрия (норма калорий, ИМТ, цель)
+    for col, dtype in [
+        ("height_cm", "REAL"),
+        ("birth_year", "INTEGER"),
+        ("gender", "TEXT"),
+        ("activity_level", "TEXT"),
+        ("goal", "TEXT"),
+    ]:
+        if not await _column_exists(db, "users", col):
+            await db.execute(f"ALTER TABLE users ADD COLUMN {col} {dtype};")
+
+    await db.execute(
+        """
+        CREATE TABLE IF NOT EXISTS calorie_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            date TEXT NOT NULL,
+            calories INTEGER NOT NULL,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+        );
+        """
+    )
+    await db.execute("CREATE INDEX IF NOT EXISTS idx_calorie_logs_user_date ON calorie_logs(user_id, date);")

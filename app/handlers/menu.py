@@ -10,6 +10,7 @@ from app.db.database import Database
 from app.db import queries
 from app.handlers import schedule, reports, profile
 from app.handlers.weight import WeightStates
+from app.handlers.calories import CalorieStates
 from app.utils.keyboards import schedule_mode_kb
 from app.utils.parsing import format_schedule
 
@@ -90,6 +91,20 @@ async def menu_handler(
             "• <code>82.4</code>\n"
             "• <code>75</code>\n"
             "• <code>90.5</code>"
+        )
+        return
+
+    if action == "calories":
+        user = await queries.get_user_by_tg_id(db, query.from_user.id)
+        if not user:
+            await query.message.answer("👋 Для начала работы выполните /start")
+            return
+        await state.set_state(CalorieStates.waiting_calories)
+        await state.update_data(user_id=int(user["id"]))
+        await query.message.answer(
+            "🔥 <b>Добавить калории</b>\n\n"
+            "Введите количество ккал (целое число).\n\n"
+            "Примеры: <code>500</code>, <code>1200</code>"
         )
         return
 

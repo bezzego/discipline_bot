@@ -149,3 +149,72 @@ async def get_workout_logs_between(db: Database, user_id: int, start: datetime, 
         (user_id, start.isoformat(), end.isoformat()),
     )
     return [dict(row) for row in rows]
+
+
+async def update_user_calorie_params(
+    db: Database,
+    user_id: int,
+    *,
+    height_cm: float | None = None,
+    birth_year: int | None = None,
+    gender: str | None = None,
+    activity_level: str | None = None,
+    goal: str | None = None,
+    target_weight: float | None = None,
+) -> None:
+    """Обновляет параметры для расчёта калорий и цели."""
+    updates, params = [], []
+    if height_cm is not None:
+        updates.append("height_cm = ?")
+        params.append(height_cm)
+    if birth_year is not None:
+        updates.append("birth_year = ?")
+        params.append(birth_year)
+    if gender is not None:
+        updates.append("gender = ?")
+        params.append(gender)
+    if activity_level is not None:
+        updates.append("activity_level = ?")
+        params.append(activity_level)
+    if goal is not None:
+        updates.append("goal = ?")
+        params.append(goal)
+    if target_weight is not None:
+        updates.append("target_weight = ?")
+        params.append(target_weight)
+    if not updates:
+        return
+    params.append(user_id)
+    await db.execute(
+        f"UPDATE users SET {', '.join(updates)} WHERE id = ?;",
+        params,
+    )
+
+
+async def add_calorie_log(
+    db: Database,
+    user_id: int,
+    date_day: str,
+    calories: int,
+    created_at: datetime,
+) -> None:
+    """Добавляет запись о калориях за день (можно несколько записей в день — суммируем)."""
+    await db.execute(
+        "INSERT INTO calorie_logs (user_id, date, calories, created_at) VALUES (?, ?, ?, ?);",
+        (user_id, date_day, calories, created_at.isoformat()),
+    )
+
+
+async def get_calories_sum_for_day(db: Database, user_id: int, date_day: str) -> int:
+    """Сумма калорий за день."""
+    row = await db.fetch_one(
+        "SELECT COALESCE(SUM(calories), 0) AS total FROM calorie_logs WHERE user_id = ? AND date = ?;",
+        (user_id, date_day),
+    )
+    return int(row["total"]) if row else 0
+
+
+async def get_user_by_id(db: Database, user_id: int) -> Optional[dict]:
+    """Пользователь по id."""
+    row = await db.fetch_one("SELECT * FROM users WHERE id = ?;", (user_id,))
+    return dict(row) if row else None

@@ -73,6 +73,51 @@ def parse_weight(value: str) -> float:
     return weight
 
 
+def parse_height_cm(value: str) -> float:
+    """Рост в см. Допускается 175 или 1.75 (м)."""
+    if not value:
+        raise ValueError("height is empty")
+    normalized = value.strip().replace(",", ".")
+    h = float(normalized)
+    if h <= 0:
+        raise ValueError("height must be positive")
+    if h < 3:
+        h *= 100
+    if h < 100 or h > 250:
+        raise ValueError("height should be 100–250 cm")
+    return round(h, 1)
+
+
+def parse_birth_year(value: str) -> int:
+    """Год рождения. Допускается год (1990) или возраст (34)."""
+    if not value:
+        raise ValueError("birth year or age is empty")
+    v = value.strip()
+    if not v.isdigit():
+        raise ValueError("use digits only")
+    n = int(v)
+    from datetime import datetime
+    y = datetime.now().year
+    if 10 <= n <= 120:
+        return y - n
+    if 1920 <= n <= y - 10:
+        return n
+    raise ValueError("use birth year (e.g. 1990) or age (e.g. 34)")
+
+
+def parse_calories(value: str) -> int:
+    """Калории — целое неотрицательное."""
+    if not value:
+        raise ValueError("calories is empty")
+    v = value.strip().replace(",", ".").split(".")[0]
+    if not v.isdigit():
+        raise ValueError("use digits only")
+    n = int(v)
+    if n < 0:
+        raise ValueError("calories must be >= 0")
+    return n
+
+
 def format_schedule(schedule: Iterable[dict], include_week_type: bool = False) -> str:
     """
     Форматирует расписание для отображения.

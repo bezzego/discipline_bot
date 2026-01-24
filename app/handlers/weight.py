@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 from app.db.database import Database
 from app.db import queries
 from app.db.models import WeightEntry
+from app.handlers.calories import CalorieStates
 from app.utils.keyboards import main_menu_kb
 from app.utils.parsing import parse_weight
 
@@ -126,7 +127,10 @@ async def weight_fallback(message: Message, state: FSMContext, db: Database, tz:
     """
     if message.text is None or message.from_user is None:
         return
-    
+    current = await state.get_state() or ""
+    if "CalorieStates" in current and "waiting_calories" in current:
+        return
+
     # Проверяем, что сообщение похоже на вес (число с точкой или запятой, возможно с пробелами)
     text = message.text.strip()
     # Удаляем точку или запятую (для десятичных чисел) и проверяем, что остальное - цифры

@@ -13,7 +13,7 @@ from aiogram.types import TelegramObject
 from app.bot import create_bot
 from app.config import load_config, Config
 from app.db.database import Database, init_db
-from app.handlers import menu, start, schedule, workouts, weight, reports, profile, admin
+from app.handlers import menu, start, schedule, workouts, weight, reports, profile, admin, calories
 from app.scheduler import create_scheduler, schedule_global_jobs, load_all_schedules
 
 
@@ -134,9 +134,10 @@ async def main() -> None:
         dp.include_router(schedule.router)
         dp.include_router(workouts.router)
         dp.include_router(weight.router)
+        dp.include_router(calories.router)
         dp.include_router(reports.router)
         dp.include_router(admin.router)
-        logger.info("✅ Все роутеры подключены: start, profile, menu, schedule, workouts, weight, reports, admin")
+        logger.info("✅ Все роутеры подключены: start, profile, menu, schedule, workouts, weight, calories, reports, admin")
 
         schedule_global_jobs(scheduler, db, bot, tz)
         logger.info("✅ Глобальные задачи запланированы (еженедельное взвешивание, месячные отчеты)")

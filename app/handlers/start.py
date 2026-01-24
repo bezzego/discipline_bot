@@ -19,9 +19,18 @@ from app.db.models import ScheduleCreate
 from app.handlers.profile import build_profile_text
 from app.scheduler import schedule_user_jobs
 from app.services.discipline import compute_week_parity_offset
-from app.utils.keyboards import weekdays_kb, week_parity_kb, main_menu_kb, time_mode_kb
+from app.utils.keyboards import (
+    weekdays_kb,
+    week_parity_kb,
+    main_menu_kb,
+    time_mode_kb,
+    gender_kb,
+    activity_kb,
+    goal_kb,
+)
 from aiogram.utils.keyboard import InlineKeyboardBuilder
-from app.utils.parsing import parse_weight, parse_time, format_schedule
+from app.utils.parsing import parse_weight, parse_time, parse_height_cm, parse_birth_year, format_schedule
+from app.db.models import WeightEntry
 
 
 router = Router()
@@ -29,6 +38,12 @@ router = Router()
 
 class StartStates(StatesGroup):
     waiting_weight = State()
+    waiting_height = State()
+    waiting_birth_year = State()
+    waiting_gender = State()
+    waiting_activity = State()
+    waiting_goal = State()
+    waiting_target_weight_goal = State()
     waiting_setup_choice = State()
     waiting_even_days = State()
     waiting_even_time_mode = State()  # Режим времени для четных недель
@@ -75,14 +90,10 @@ async def start_command(message: Message, state: FSMContext, db: Database, tz: Z
     
     await message.answer(
         "👋 <b>Добро пожаловать в Discipline Bot!</b>\n\n"
-        "Я помогу вам отслеживать тренировки и прогресс.\n\n"
-        "📋 <b>Давайте создадим ваш профиль</b>\n"
-        "Это займет пару минут.\n\n"
-        "📝 <b>Шаг 1/3:</b> Укажите ваш целевой вес в кг\n\n"
-        "Примеры:\n"
-        "• <code>82.5</code>\n"
-        "• <code>75</code>\n"
-        "• <code>90</code>"
+        "Помогу отслеживать тренировки, вес и норму калорий.\n\n"
+        "📋 <b>Создадим профиль</b> — потребуются рост, возраст, пол, активность и цель.\n\n"
+        "📝 <b>Шаг 1 из 8:</b> Укажите ваш <b>текущий вес</b> (кг)\n\n"
+        "Примеры: <code>72.5</code>, <code>85</code>, <code>68</code>"
     )
     await state.set_state(StartStates.waiting_weight)
 
@@ -90,7 +101,7 @@ async def start_command(message: Message, state: FSMContext, db: Database, tz: Z
 
 
 @router.message(StartStates.waiting_weight)
-async def start_weight(message: Message, state: FSMContext, db: Database) -> None:
+async def start_weight(message: Message, state: FSMContext, db: Database, tz: ZoneInfo) -> None:
     if message.text is None:
         return
     data = await state.get_data()
@@ -102,55 +113,220 @@ async def start_weight(message: Message, state: FSMContext, db: Database) -> Non
             "Пожалуйста, нажмите /start для начала регистрации."
         )
         return
-    
-    # Удаляем сообщение пользователя
+
     try:
         await message.delete()
     except Exception:
         pass
-    
+
     try:
         weight = parse_weight(message.text)
     except ValueError:
-        await message.answer("❌ Нужен корректный вес числом, например: 82.5 или 75")
+        await message.answer("❌ Укажите вес числом, например: <code>72.5</code> или <code>85</code>")
         return
 
     await queries.update_target_weight(db, int(user_id), weight)
+    await queries.add_weight_entry(db, WeightEntry(user_id=int(user_id), weight=weight, date=datetime.now(tz)))
+    await state.set_state(StartStates.waiting_height)
+
+    await message.answer(
+        f"✅ <b>Вес сохранён: {weight} кг</b>\n\n"
+        "📝 <b>Шаг 2 из 8:</b> Укажите <b>рост</b> (см)\n\n"
+        "Примеры: <code>175</code>, <code>168</code>, <code>1.82</code> (м)"
+    )
+
+
+@router.message(StartStates.waiting_height)
+async def start_height(message: Message, state: FSMContext, db: Database) -> None:
+    if message.text is None:
+        return
+    data = await state.get_data()
+    user_id = data.get("user_id")
+    if user_id is None:
+        await state.clear()
+        await message.answer("⚠️ Сессия сброшена. Нажмите /start.")
+        return
+    try:
+        await message.delete()
+    except Exception:
+        pass
+    try:
+        h = parse_height_cm(message.text)
+    except ValueError:
+        await message.answer("❌ Укажите рост в см, например: <code>175</code> или <code>1.82</code>")
+        return
+    await queries.update_user_calorie_params(db, int(user_id), height_cm=h)
+    await state.set_state(StartStates.waiting_birth_year)
+    await message.answer(
+        f"✅ <b>Рост сохранён: {h} см</b>\n\n"
+        "📝 <b>Шаг 3 из 8:</b> Укажите <b>год рождения</b> или <b>возраст</b>\n\n"
+        "Примеры: <code>1990</code>, <code>34</code>"
+    )
+
+
+@router.message(StartStates.waiting_birth_year)
+async def start_birth_year(message: Message, state: FSMContext, db: Database) -> None:
+    if message.text is None:
+        return
+    data = await state.get_data()
+    user_id = data.get("user_id")
+    if user_id is None:
+        await state.clear()
+        await message.answer("⚠️ Сессия сброшена. Нажмите /start.")
+        return
+    try:
+        await message.delete()
+    except Exception:
+        pass
+    try:
+        by = parse_birth_year(message.text)
+    except ValueError:
+        await message.answer("❌ Укажите год рождения (например <code>1990</code>) или возраст (<code>34</code>).")
+        return
+    await queries.update_user_calorie_params(db, int(user_id), birth_year=by)
+    await state.set_state(StartStates.waiting_gender)
+    await message.answer(
+        f"✅ <b>Год рождения сохранён</b>\n\n"
+        "📝 <b>Шаг 4 из 8:</b> Укажите <b>пол</b>",
+        reply_markup=gender_kb().as_markup(),
+    )
+
+
+@router.callback_query(StartStates.waiting_gender, F.data.startswith("gender:"))
+async def start_gender(query, state: FSMContext, db: Database) -> None:
+    if query.data is None or query.message is None:
+        return
+    g = query.data.split(":")[1]
+    data = await state.get_data()
+    user_id = data.get("user_id")
+    if user_id is None:
+        await state.clear()
+        await query.answer("⚠️ Сессия сброшена.", show_alert=True)
+        return
+    await queries.update_user_calorie_params(db, int(user_id), gender=g)
+    await state.set_state(StartStates.waiting_activity)
+    await query.message.edit_text(
+        "✅ <b>Пол сохранён</b>\n\n"
+        "📝 <b>Шаг 5 из 8:</b> Выберите <b>уровень активности</b>",
+        reply_markup=activity_kb().as_markup(),
+    )
+    await query.answer()
+
+
+@router.callback_query(StartStates.waiting_activity, F.data.startswith("activity:"))
+async def start_activity(query, state: FSMContext, db: Database) -> None:
+    if query.data is None or query.message is None:
+        return
+    act = query.data.split(":")[1]
+    data = await state.get_data()
+    user_id = data.get("user_id")
+    if user_id is None:
+        await state.clear()
+        await query.answer("⚠️ Сессия сброшена.", show_alert=True)
+        return
+    await queries.update_user_calorie_params(db, int(user_id), activity_level=act)
+    await state.set_state(StartStates.waiting_goal)
+    await query.message.edit_text(
+        "✅ <b>Активность сохранена</b>\n\n"
+        "📝 <b>Шаг 6 из 8:</b> Выберите <b>цель</b>",
+        reply_markup=goal_kb().as_markup(),
+    )
+    await query.answer()
+
+
+@router.callback_query(StartStates.waiting_goal, F.data.startswith("goal:"))
+async def start_goal(query, state: FSMContext, db: Database) -> None:
+    if query.data is None or query.message is None:
+        return
+    goal = query.data.split(":")[1]
+    data = await state.get_data()
+    user_id = data.get("user_id")
+    if user_id is None:
+        await state.clear()
+        await query.answer("⚠️ Сессия сброшена.", show_alert=True)
+        return
+    await queries.update_user_calorie_params(db, int(user_id), goal=goal)
+    await state.update_data(goal=goal)
+
+    if goal == "maintain":
+        await state.set_state(StartStates.waiting_setup_choice)
+        builder = InlineKeyboardBuilder()
+        builder.button(text="Настроить разные расписания для четных и нечетных недель", callback_data="setup:separate")
+        builder.button(text="Одно расписание для всех недель", callback_data="setup:any")
+        builder.button(text="Пропустить (настрою позже)", callback_data="setup:skip")
+        builder.adjust(1, 1, 1)
+        await query.message.edit_text(
+            "✅ <b>Цель сохранена</b>\n\n"
+            "📝 <b>Шаг 8 из 8: Настройка расписания</b>\n\n"
+            "Выберите вариант:\n\n"
+            "🔀 <b>Разные расписания</b> — для четных и нечетных недель\n\n"
+            "📅 <b>Одно расписание</b> — для всех недель\n\n"
+            "⏭️ <b>Пропустить</b> — настроите позже через /schedule",
+            reply_markup=builder.as_markup(),
+        )
+        await query.answer()
+        return
+
+    await state.set_state(StartStates.waiting_target_weight_goal)
+    label = "похудения" if goal == "lose" else "набора массы"
+    await query.message.edit_text(
+        f"✅ <b>Цель сохранена</b>\n\n"
+        f"📝 <b>Шаг 7 из 8:</b> Укажите <b>целевой вес</b> для {label} (кг)\n\n"
+        "Примеры: <code>75</code>, <code>82</code>",
+        reply_markup=None,
+    )
+    await query.answer()
+
+
+@router.message(StartStates.waiting_target_weight_goal)
+async def start_target_weight_goal(message: Message, state: FSMContext, db: Database) -> None:
+    if message.text is None:
+        return
+    data = await state.get_data()
+    user_id = data.get("user_id")
+    if user_id is None:
+        await state.clear()
+        await message.answer("⚠️ Сессия сброшена. Нажмите /start.")
+        return
+    try:
+        await message.delete()
+    except Exception:
+        pass
+    try:
+        tw = parse_weight(message.text)
+    except ValueError:
+        await message.answer("❌ Укажите вес числом, например: <code>75</code> или <code>82</code>")
+        return
+    await queries.update_user_calorie_params(db, int(user_id), target_weight=tw)
     await state.set_state(StartStates.waiting_setup_choice)
-    
     builder = InlineKeyboardBuilder()
     builder.button(text="Настроить разные расписания для четных и нечетных недель", callback_data="setup:separate")
     builder.button(text="Одно расписание для всех недель", callback_data="setup:any")
     builder.button(text="Пропустить (настрою позже)", callback_data="setup:skip")
     builder.adjust(1, 1, 1)
-    
     await message.answer(
-        f"✅ <b>Целевой вес сохранен: {weight} кг</b>\n\n"
-        f"📋 <b>Шаг 2/3: Настройка расписания</b>\n\n"
+        f"✅ <b>Целевой вес сохранён: {tw} кг</b>\n\n"
+        "📝 <b>Шаг 8 из 8: Настройка расписания</b>\n\n"
         "Выберите вариант:\n\n"
-        "🔀 <b>Разные расписания</b>\n"
-        "   Можно настроить отдельно для четных и нечетных недель\n\n"
-        "📅 <b>Одно расписание</b>\n"
-        "   Одинаковое для всех недель\n\n"
-        "⏭️ <b>Пропустить</b>\n"
-        "   Настроите позже через /schedule",
+        "🔀 <b>Разные расписания</b> — для четных и нечетных недель\n\n"
+        "📅 <b>Одно расписание</b> — для всех недель\n\n"
+        "⏭️ <b>Пропустить</b> — настроите позже через /schedule",
         reply_markup=builder.as_markup(),
     )
 
 
 @router.callback_query(StartStates.waiting_setup_choice, F.data.startswith("setup:"))
-async def start_setup_choice(query, state: FSMContext) -> None:
-    if query.data is None or query.message is None:
+async def start_setup_choice(query, state: FSMContext, config: Config) -> None:
+    if query.data is None or query.message is None or query.from_user is None:
         return
     setup_type = query.data.split(":")[1]
-    
+
     if setup_type == "skip":
         await query.message.edit_reply_markup(reply_markup=None)
         await query.message.answer(
             "✅ <b>Регистрация завершена!</b>\n\n"
-            "Вы можете настроить расписание позже через /schedule\n"
-            "Или посмотреть профиль через /profile",
-            reply_markup=main_menu_kb(config.admin_ids, message.from_user.id).as_markup(),
+            "Настройте расписание через /schedule, профиль — /profile.",
+            reply_markup=main_menu_kb(config.admin_ids, query.from_user.id).as_markup(),
         )
         await query.answer()
         await state.clear()
@@ -761,7 +937,7 @@ async def start_any_time_mode(query, state: FSMContext) -> None:
 
 
 @router.message(StartStates.waiting_any_time)
-async def start_any_time(message: Message, state: FSMContext, db: Database, scheduler, tz: ZoneInfo) -> None:
+async def start_any_time(message: Message, state: FSMContext, db: Database, scheduler, tz: ZoneInfo, config: Config) -> None:
     if message.from_user is None or message.text is None:
         return
     data = await state.get_data()
@@ -820,12 +996,12 @@ async def start_any_time(message: Message, state: FSMContext, db: Database, sche
     profile_text = await build_profile_text(db, int(user_id), tz)
     await message.answer(
         f"✅ <b>Регистрация завершена!</b>\n\n{profile_text}",
-        reply_markup=main_menu_kb().as_markup(),
+        reply_markup=main_menu_kb(config.admin_ids, message.from_user.id).as_markup(),
     )
 
 
 @router.message(StartStates.waiting_any_day_time)
-async def start_any_day_time(message: Message, state: FSMContext, db: Database, scheduler, tz: ZoneInfo) -> None:
+async def start_any_day_time(message: Message, state: FSMContext, db: Database, scheduler, tz: ZoneInfo, config: Config) -> None:
     if message.from_user is None or message.text is None:
         return
     data = await state.get_data()
@@ -933,7 +1109,7 @@ async def start_any_day_time(message: Message, state: FSMContext, db: Database, 
     profile_text = await build_profile_text(db, int(user_id), tz)
     await message.answer(
         f"✅ <b>Регистрация завершена!</b>\n\n{profile_text}",
-        reply_markup=main_menu_kb().as_markup(),
+        reply_markup=main_menu_kb(config.admin_ids, message.from_user.id).as_markup(),
     )
 
 
@@ -944,6 +1120,7 @@ async def start_week_parity(
     db: Database,
     scheduler,
     tz: ZoneInfo,
+    config: Config,
 ) -> None:
     if query.data is None or query.message is None or query.from_user is None:
         return
@@ -1034,6 +1211,6 @@ async def start_week_parity(
     profile_text = await build_profile_text(db, int(user_id), tz)
     await query.message.answer(
         f"✅ <b>Регистрация завершена!</b>\n\n{profile_text}",
-        reply_markup=main_menu_kb().as_markup(),
+        reply_markup=main_menu_kb(config.admin_ids, query.from_user.id).as_markup(),
     )
     await query.answer()
