@@ -10,6 +10,7 @@ from aiogram.types import Message
 from app.config import Config
 from app.db.database import Database
 from app.db import queries
+from app.services.access import access_status_display
 from app.services.discipline import is_user_week_even
 from app.services.calories import compute_calorie_profile
 from app.utils.keyboards import main_menu_kb
@@ -21,9 +22,17 @@ router = Router()
 GOAL_LABELS = {"lose": "похудение", "maintain": "удержание", "gain": "набор массы"}
 
 
-async def build_profile_text(db: Database, user_id: int, tz: ZoneInfo) -> str:
+async def build_profile_text(
+    db: Database,
+    user_id: int,
+    tz: ZoneInfo,
+    config: Config | None = None,
+    tg_id: int | None = None,
+) -> str:
     user_row = await db.fetch_one("SELECT * FROM users WHERE id = ?;", (user_id,))
     user = dict(user_row) if user_row else {}
+    uid = user.get("tg_id") if user else None
+    tg_id = tg_id if tg_id is not None else uid
     target_weight = user.get("target_weight")
     week_parity_offset = user.get("week_parity_offset")
     height_cm = user.get("height_cm")
@@ -89,6 +98,10 @@ async def build_profile_text(db: Database, user_id: int, tz: ZoneInfo) -> str:
         parts.append("⚠️ Заполните рост, возраст и пол в /start для расчёта нормы калорий и ИМТ.")
 
     parts.append("")
+    if config is not None and tg_id is not None:
+        status_text, _, _ = access_status_display(user, int(tg_id), config, tz)
+        parts.append(f"🔐 <b>Доступ:</b> {status_text}")
+        parts.append("")
     parts.append(f"📅 <b>Расписание:</b>\n{schedule_text}")
     parts.append(f"📆 <b>Текущая неделя:</b> {week_parity_text}")
 
@@ -97,7 +110,8 @@ async def build_profile_text(db: Database, user_id: int, tz: ZoneInfo) -> str:
 
 async def show_profile(message: Message, db: Database, tz: ZoneInfo, user_id: int, config: Config = None) -> None:
     """Вспомогательная функция для показа профиля по user_id"""
-    text = await build_profile_text(db, user_id, tz)
+    tg_id = message.from_user.id if message.from_user else None
+    text = await build_profile_text(db, user_id, tz, config=config, tg_id=tg_id)
     admin_ids = config.admin_ids if config else None
     user_tg_id = message.from_user.id if message.from_user else None
     await message.answer(text, reply_markup=main_menu_kb(admin_ids, user_tg_id).as_markup())

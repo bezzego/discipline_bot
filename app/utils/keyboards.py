@@ -27,22 +27,35 @@ def paywall_kb() -> InlineKeyboardBuilder:
     return builder
 
 
+def subscription_kb(pay_now: bool = False, extend: bool = False) -> InlineKeyboardBuilder:
+    """Кнопки: «Оплатить сейчас» (без триала), «Продлить» подписку, «В меню»."""
+    builder = InlineKeyboardBuilder()
+    if pay_now:
+        builder.button(text="Оплатить сейчас (299 ₽/мес)", callback_data="pay:month")
+    if extend:
+        builder.button(text="Продлить подписку", callback_data="pay:month")
+    if pay_now or extend:
+        builder.button(text="◀️ В меню", callback_data="menu:back")
+    builder.adjust(1)
+    return builder
+
+
 def main_menu_kb(admin_ids: Optional[list[int]] = None, user_id: Optional[int] = None) -> InlineKeyboardBuilder:
     builder = InlineKeyboardBuilder()
     builder.button(text="Профиль", callback_data="menu:profile")
+    builder.button(text="Подписка", callback_data="menu:subscription")
     builder.button(text="Расписание", callback_data="menu:schedule")
     builder.button(text="Вес", callback_data="menu:weight")
     builder.button(text="Калории", callback_data="menu:calories")
     builder.button(text="Отчет", callback_data="menu:report")
     builder.button(text="Статистика", callback_data="menu:stats")
-    
-    # Добавляем кнопку админа только для админов
+
     if admin_ids and user_id and user_id in admin_ids:
         builder.button(text="🔐 Админ-панель", callback_data="menu:admin")
-        builder.adjust(2, 2, 1, 1, 1)
+        builder.adjust(2, 2, 2, 1, 1)
     else:
         builder.adjust(2, 2, 2, 1)
-    
+
     return builder
 
 

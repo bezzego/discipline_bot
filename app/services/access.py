@@ -73,3 +73,85 @@ def subscription_end_after_months(now: datetime, months: int = SUBSCRIPTION_MONT
     """Дата окончания подписки через N месяцев (YYYY-MM-DD). Упрощённо: +30 дней за месяц."""
     end = (now.date() + timedelta(days=30 * months)).isoformat()
     return end
+
+
+def _parse_created_at(created, tz: ZoneInfo) -> datetime | None:
+    if not created:
+        return None
+    try:
+        if isinstance(created, str) and "T" in created:
+            created_dt = datetime.fromisoformat(created.replace("Z", "+00:00"))
+        else:
+            created_dt = datetime.fromisoformat(str(created))
+    except Exception:
+        return None
+    if created_dt.tzinfo is None:
+        created_dt = created_dt.replace(tzinfo=tz)
+    return created_dt
+
+
+def trial_days_left(user: dict | None, tz: ZoneInfo) -> int:
+    """Сколько дней осталось до конца пробного периода. 0 если триал истёк или есть подписка."""
+    if not user:
+        return 0
+    sub_ends = user.get("subscription_ends_at")
+    if sub_ends:
+        try:
+            from datetime import date
+            if str(sub_ends) >= date.today().isoformat():
+                return 0  # подписка активна, триал не считается
+        except Exception:
+            pass
+    created_dt = _parse_created_at(user.get("created_at"), tz)
+    if not created_dt:
+        return 0
+    now = datetime.now(tz)
+    trial_end = (created_dt + timedelta(days=TRIAL_DAYS)).date()
+    if now.date() > trial_end:
+        return 0
+    delta = (trial_end - now.date()).days
+    return max(0, delta)
+
+
+def format_sub_end_display(date_iso: str) -> str:
+    """YYYY-MM-DD → DD.MM.YYYY для отображения."""
+    if not date_iso:
+        return ""
+    try:
+        parts = str(date_iso).strip()[:10].split("-")
+        if len(parts) == 3:
+            return f"{parts[2]}.{parts[1]}.{parts[0]}"
+    except Exception:
+        pass
+    return str(date_iso)
+
+
+def access_status_display(user: dict | None, tg_id: int, config: Config, tz: ZoneInfo) -> tuple[str, bool, bool]:
+    """
+    Текст статуса доступа и флаги для кнопок.
+    Возвращает (текст, показать_оплатить_сейчас, показать_продлить).
+    """
+    if not user:
+        return "Нет доступа. Выполните /start.", False, False
+    if is_admin(tg_id, config):
+        return "Доступ: без ограничений (админ).", False, False
+
+    now = datetime.now(tz)
+    today = now.date().isoformat()
+    sub_ends = user.get("subscription_ends_at")
+
+    if sub_ends and str(sub_ends) >= today:
+        end_str = format_sub_end_display(str(sub_ends))
+        return f"Подписка до <b>{end_str}</b>.", False, True
+
+    days = trial_days_left(user, tz)
+    if days > 0:
+        if days == 1:
+            d = "1 день"
+        elif 2 <= days <= 4:
+            d = f"{days} дня"
+        else:
+            d = f"{days} дней"
+        return f"Пробный период: осталось <b>{d}</b>.", True, False
+
+    return "Бесплатный период закончился. Оформите подписку.", True, False

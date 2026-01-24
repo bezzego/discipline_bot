@@ -11,7 +11,12 @@ from app.db import queries
 from app.handlers import schedule, reports, profile
 from app.handlers.weight import WeightStates
 from app.handlers.calories import CalorieStates
-from app.utils.keyboards import schedule_mode_kb
+from app.services.access import (
+    PRODUCT_DESCRIPTION,
+    PRODUCT_PRICE,
+    access_status_display,
+)
+from app.utils.keyboards import main_menu_kb, schedule_mode_kb, subscription_kb
 from app.utils.parsing import format_schedule
 
 
@@ -141,22 +146,55 @@ async def menu_handler(
         return
 
     if action == "profile":
-        # Проверяем, что пользователь существует
         user = await queries.get_user_by_tg_id(db, query.from_user.id)
         if not user:
             if query.message:
                 await query.message.answer(
-                "👋 Привет!\n\n"
-                "Для начала работы выполните команду /start"
-            )
+                    "👋 Привет!\n\n"
+                    "Для начала работы выполните команду /start"
+                )
             return
         if query.message is None:
             return
         await profile.show_profile(query.message, db, tz, int(user["id"]), config)
         return
-    
+
+    if action == "subscription":
+        user = await queries.get_user_by_tg_id(db, query.from_user.id)
+        if not user:
+            if query.message:
+                await query.message.answer("👋 Для начала работы выполните /start")
+            return
+        if query.message is None:
+            return
+        status_text, pay_now, extend = access_status_display(
+            user, query.from_user.id, config, tz
+        )
+        text = (
+            "📋 <b>Подписка</b>\n\n"
+            f"🔐 <b>Доступ:</b> {status_text}\n\n"
+            f"{PRODUCT_DESCRIPTION}\n\n"
+            f"{PRODUCT_PRICE}\n\n"
+            "Подробнее — /tariff"
+        )
+        kb = subscription_kb(pay_now=pay_now, extend=extend)
+        if pay_now or extend:
+            await query.message.answer(text, reply_markup=kb.as_markup())
+        else:
+            await query.message.answer(
+                text,
+                reply_markup=main_menu_kb(config.admin_ids, query.from_user.id).as_markup(),
+            )
+        return
+
+    if action == "back":
+        await query.message.answer(
+            "Главное меню:",
+            reply_markup=main_menu_kb(config.admin_ids, query.from_user.id).as_markup(),
+        )
+        return
+
     if action == "admin":
-        # Перенаправляем в админ-панель
         from app.handlers.admin import admin_panel_handler
         await admin_panel_handler(query, config)
         return

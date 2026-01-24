@@ -17,15 +17,16 @@ from app.services.access import (
     PRODUCT_DESCRIPTION,
     PRODUCT_PRICE,
     TRIAL_DAYS,
+    access_status_display,
     subscription_end_after_months,
 )
-from app.utils.keyboards import main_menu_kb, paywall_kb
+from app.utils.keyboards import main_menu_kb, paywall_kb, subscription_kb
 
 logger = logging.getLogger(__name__)
 
 router = Router()
 
-TARIFF_TEXT = (
+TARIFF_BASE = (
     "📋 <b>Описание и стоимость товаров/услуг</b>\n\n"
     f"{PRODUCT_DESCRIPTION}\n\n"
     f"{PRODUCT_PRICE}\n\n"
@@ -34,9 +35,29 @@ TARIFF_TEXT = (
 
 
 @router.message(Command("tariff"))
-async def tariff_command(message: Message) -> None:
-    """Показать описание и стоимость подписки (доступно всем)."""
-    await message.answer(TARIFF_TEXT)
+async def tariff_command(
+    message: Message,
+    db: Database,
+    tz: ZoneInfo,
+    config: Config,
+) -> None:
+    """Показать описание и стоимость; персональный статус + «Оплатить сейчас» при триале."""
+    if message.from_user is None:
+        await message.answer(TARIFF_BASE)
+        return
+    user = await queries.get_user_by_tg_id(db, message.from_user.id)
+    if not user:
+        await message.answer(TARIFF_BASE)
+        return
+    status_text, pay_now, extend = access_status_display(
+        user, message.from_user.id, config, tz
+    )
+    text = f"🔐 <b>Ваш статус:</b> {status_text}\n\n{TARIFF_BASE}"
+    kb = subscription_kb(pay_now=pay_now, extend=extend)
+    if pay_now or extend:
+        await message.answer(text, reply_markup=kb.as_markup())
+    else:
+        await message.answer(text)
 
 
 @router.callback_query(F.data.startswith("pay:"))

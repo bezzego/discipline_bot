@@ -1009,7 +1009,9 @@ async def start_any_time(message: Message, state: FSMContext, db: Database, sche
     
     await state.clear()
     formatted = format_schedule(schedule)
-    profile_text = await build_profile_text(db, int(user_id), tz)
+    profile_text = await build_profile_text(
+        db, int(user_id), tz, config=config, tg_id=message.from_user.id
+    )
     await message.answer(
         f"✅ <b>Регистрация завершена!</b>\n\n{profile_text}",
         reply_markup=main_menu_kb(config.admin_ids, message.from_user.id).as_markup(),
@@ -1122,7 +1124,9 @@ async def start_any_day_time(message: Message, state: FSMContext, db: Database, 
     )
     
     await state.clear()
-    profile_text = await build_profile_text(db, int(user_id), tz)
+    profile_text = await build_profile_text(
+        db, int(user_id), tz, config=config, tg_id=message.from_user.id
+    )
     await message.answer(
         f"✅ <b>Регистрация завершена!</b>\n\n{profile_text}",
         reply_markup=main_menu_kb(config.admin_ids, message.from_user.id).as_markup(),
@@ -1224,7 +1228,9 @@ async def start_week_parity(
         schedule_text += f"📅 Все недели: {format_schedule(any_schedule)}\n"
     
     await query.message.edit_reply_markup(reply_markup=None)
-    profile_text = await build_profile_text(db, int(user_id), tz)
+    profile_text = await build_profile_text(
+        db, int(user_id), tz, config=config, tg_id=query.from_user.id
+    )
     await query.message.answer(
         f"✅ <b>Регистрация завершена!</b>\n\n{profile_text}",
         reply_markup=main_menu_kb(config.admin_ids, query.from_user.id).as_markup(),
