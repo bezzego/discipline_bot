@@ -1,0 +1,7 @@
+aiogram>=3
+aiosqlite
+APScheduler
+pydantic
+python-dotenv
+matplotlib
+openpyxl
