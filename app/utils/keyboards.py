@@ -20,6 +20,13 @@ def log_status_kb() -> InlineKeyboardBuilder:
     return builder
 
 
+def paywall_kb() -> InlineKeyboardBuilder:
+    builder = InlineKeyboardBuilder()
+    builder.button(text="Оплатить 299 ₽/мес", callback_data="pay:month")
+    builder.adjust(1)
+    return builder
+
+
 def main_menu_kb(admin_ids: Optional[list[int]] = None, user_id: Optional[int] = None) -> InlineKeyboardBuilder:
     builder = InlineKeyboardBuilder()
     builder.button(text="Профиль", callback_data="menu:profile")

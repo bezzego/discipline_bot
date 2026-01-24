@@ -8,13 +8,16 @@ from typing import Any, Awaitable, Callable, Dict
 
 from aiogram import BaseMiddleware, Dispatcher
 from aiogram.fsm.storage.memory import MemoryStorage
-from aiogram.types import TelegramObject
+from aiogram.types import CallbackQuery, Message, TelegramObject
 
 from app.bot import create_bot
 from app.config import load_config, Config
 from app.db.database import Database, init_db
-from app.handlers import menu, start, schedule, workouts, weight, reports, profile, admin, calories
+from app.db import queries
+from app.handlers import menu, start, schedule, workouts, weight, reports, profile, admin, calories, subscription
 from app.scheduler import create_scheduler, schedule_global_jobs, load_all_schedules
+from app.services.access import has_access, is_admin, PRODUCT_DESCRIPTION, PRODUCT_PRICE
+from app.utils.keyboards import paywall_kb
 
 
 class ColorFormatter(logging.Formatter):
@@ -94,6 +97,70 @@ class ContextMiddleware(BaseMiddleware):
         return await handler(event, data)
 
 
+def _paywall_text() -> str:
+    return (
+        "⏱ <b>Бесплатный период (5 дней) закончился.</b>\n\n"
+        "Оформите подписку:\n\n"
+        f"{PRODUCT_DESCRIPTION}\n\n"
+        f"{PRODUCT_PRICE}\n\n"
+        "Нажмите кнопку ниже (система оплаты пока не подключена — доступ откроется сразу)."
+    )
+
+
+class AccessMiddleware(BaseMiddleware):
+    """Проверка доступа: триал 5 дней, подписка, админы всегда бесплатно."""
+
+    def __init__(self, db: Database, tz: ZoneInfo, config: Config) -> None:
+        self._db = db
+        self._tz = tz
+        self._config = config
+
+    async def __call__(
+        self,
+        handler: Callable[[TelegramObject, Dict[str, Any]], Awaitable[Any]],
+        event: TelegramObject,
+        data: Dict[str, Any],
+    ) -> Any:
+        db = self._db
+        tz = self._tz
+        config = self._config
+
+        user_tg = None
+        if isinstance(event, Message) and event.from_user:
+            user_tg = event.from_user
+        elif isinstance(event, CallbackQuery) and event.from_user:
+            user_tg = event.from_user
+        if not user_tg:
+            return await handler(event, data)
+
+        tg_id = user_tg.id
+        if is_admin(tg_id, config):
+            return await handler(event, data)
+
+        if isinstance(event, Message) and event.text:
+            txt = event.text.strip().lower()
+            if txt.startswith("/start") or txt.startswith("/tariff"):
+                return await handler(event, data)
+        if isinstance(event, CallbackQuery) and event.data and event.data.startswith("pay:"):
+            return await handler(event, data)
+
+        u = await queries.get_user_by_tg_id(db, tg_id)
+        if not u:
+            return await handler(event, data)
+
+        if await has_access(db, tg_id, u, config, tz):
+            return await handler(event, data)
+
+        kb = paywall_kb().as_markup()
+        text = _paywall_text()
+        if isinstance(event, CallbackQuery):
+            await event.answer()
+            await event.message.answer(text, reply_markup=kb)
+        else:
+            await event.answer(text, reply_markup=kb)
+        return None
+
+
 async def main() -> None:
     logger = logging.getLogger(__name__)
     
@@ -125,7 +192,9 @@ async def main() -> None:
 
         dp = Dispatcher(storage=MemoryStorage())
         dp.message.middleware(ContextMiddleware(db, scheduler, tz, config))
+        dp.message.middleware(AccessMiddleware(db, tz, config))
         dp.callback_query.middleware(ContextMiddleware(db, scheduler, tz, config))
+        dp.callback_query.middleware(AccessMiddleware(db, tz, config))
         logger.info("✅ Middleware настроен")
 
         dp.include_router(start.router)
@@ -137,7 +206,8 @@ async def main() -> None:
         dp.include_router(calories.router)
         dp.include_router(reports.router)
         dp.include_router(admin.router)
-        logger.info("✅ Все роутеры подключены: start, profile, menu, schedule, workouts, weight, calories, reports, admin")
+        dp.include_router(subscription.router)
+        logger.info("✅ Все роутеры подключены: start, profile, menu, schedule, workouts, weight, calories, reports, admin, subscription")
 
         schedule_global_jobs(scheduler, db, bot, tz)
         logger.info("✅ Глобальные задачи запланированы (еженедельное взвешивание, месячные отчеты)")

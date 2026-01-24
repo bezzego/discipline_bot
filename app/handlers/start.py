@@ -31,6 +31,8 @@ from app.utils.keyboards import (
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from app.utils.parsing import parse_weight, parse_time, parse_height_cm, parse_birth_year, format_schedule
 from app.db.models import WeightEntry
+from app.services.access import has_access, PRODUCT_DESCRIPTION, PRODUCT_PRICE
+from app.utils.keyboards import paywall_kb
 
 
 router = Router()
@@ -60,19 +62,32 @@ class StartStates(StatesGroup):
     waiting_week_parity = State()
 
 
+def _paywall_start_text() -> str:
+    return (
+        "⏱ <b>Бесплатный период (5 дней) закончился.</b>\n\n"
+        "Оформите подписку:\n\n"
+        f"{PRODUCT_DESCRIPTION}\n\n"
+        f"{PRODUCT_PRICE}\n\n"
+        "Нажмите кнопку ниже (система оплаты пока не подключена — доступ откроется сразу)."
+    )
+
+
 @router.message(Command("start"))
 async def start_command(message: Message, state: FSMContext, db: Database, tz: ZoneInfo, config: Config) -> None:
     if message.from_user is None:
         logger.warning("⚠️ Получена команда /start без информации о пользователе")
         return
-    
+
     tg_id = message.from_user.id
     username = message.from_user.username or "без username"
     logger.info(f"📥 Команда /start от пользователя: tg_id={tg_id}, username=@{username}")
-    
-    # Проверяем, есть ли уже пользователь
+
     existing_user = await queries.get_user_by_tg_id(db, tg_id)
     if existing_user:
+        if not await has_access(db, tg_id, existing_user, config, tz):
+            logger.info(f"🔒 Доступ закрыт, paywall: tg_id={tg_id}")
+            await message.answer(_paywall_start_text(), reply_markup=paywall_kb().as_markup())
+            return
         logger.info(f"ℹ️ Пользователь {tg_id} уже зарегистрирован, показываем меню")
         await message.answer(
             "👋 <b>Вы уже зарегистрированы!</b>\n\n"
@@ -91,6 +106,7 @@ async def start_command(message: Message, state: FSMContext, db: Database, tz: Z
     await message.answer(
         "👋 <b>Добро пожаловать в Discipline Bot!</b>\n\n"
         "Помогу отслеживать тренировки, вес и норму калорий.\n\n"
+        "🆓 <b>У вас 5 дней бесплатного доступа.</b> Затем — подписка. Описание и стоимость — /tariff\n\n"
         "📋 <b>Создадим профиль</b> — потребуются рост, возраст, пол, активность и цель.\n\n"
         "📝 <b>Шаг 1 из 8:</b> Укажите ваш <b>текущий вес</b> (кг)\n\n"
         "Примеры: <code>72.5</code>, <code>85</code>, <code>68</code>"

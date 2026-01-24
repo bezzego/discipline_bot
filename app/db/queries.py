@@ -218,3 +218,8 @@ async def get_user_by_id(db: Database, user_id: int) -> Optional[dict]:
     """Пользователь по id."""
     row = await db.fetch_one("SELECT * FROM users WHERE id = ?;", (user_id,))
     return dict(row) if row else None
+
+
+async def set_subscription_ends_at(db: Database, user_id: int, date_iso: str) -> None:
+    """Установить дату окончания подписки (YYYY-MM-DD)."""
+    await db.execute("UPDATE users SET subscription_ends_at = ? WHERE id = ?;", (date_iso, user_id))

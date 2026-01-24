@@ -156,3 +156,6 @@ async def init_db(db: Database) -> None:
         """
     )
     await db.execute("CREATE INDEX IF NOT EXISTS idx_calorie_logs_user_date ON calorie_logs(user_id, date);")
+
+    if not await _column_exists(db, "users", "subscription_ends_at"):
+        await db.execute("ALTER TABLE users ADD COLUMN subscription_ends_at TEXT;")
