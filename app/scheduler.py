@@ -252,7 +252,6 @@ def schedule_user_jobs(
             )
             total_jobs += 1
         
-        missed_weekday, missed_hour, missed_minute = _adjust_time(weekday, hour, minute, 30)
         scheduler.add_job(
             _confirmation_job,
             CronTrigger(day_of_week=weekday, hour=hour, minute=minute, timezone=tz),
@@ -270,6 +269,9 @@ def schedule_user_jobs(
         )
         total_jobs += 1
         
+        # Проверка пропуска через 3 часа после времени тренировки (180 минут)
+        # Это даёт пользователям достаточно времени для ответа
+        missed_weekday, missed_hour, missed_minute = _adjust_time(weekday, hour, minute, 180)
         scheduler.add_job(
             _missed_job,
             CronTrigger(day_of_week=missed_weekday, hour=missed_hour, minute=missed_minute, timezone=tz),
