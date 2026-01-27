@@ -20,18 +20,18 @@ def log_status_kb() -> InlineKeyboardBuilder:
     return builder
 
 
-def paywall_kb() -> InlineKeyboardBuilder:
+def paywall_kb(price: float = 299.0) -> InlineKeyboardBuilder:
     builder = InlineKeyboardBuilder()
-    builder.button(text="Оплатить 299 ₽/мес", callback_data="pay:month")
+    builder.button(text=f"Оплатить {price:.0f} ₽/мес", callback_data="pay:month")
     builder.adjust(1)
     return builder
 
 
-def subscription_kb(pay_now: bool = False, extend: bool = False) -> InlineKeyboardBuilder:
+def subscription_kb(pay_now: bool = False, extend: bool = False, price: float = 299.0) -> InlineKeyboardBuilder:
     """Кнопки: «Оплатить сейчас» (без триала), «Продлить» подписку, «В меню»."""
     builder = InlineKeyboardBuilder()
     if pay_now:
-        builder.button(text="Оплатить сейчас (299 ₽/мес)", callback_data="pay:month")
+        builder.button(text=f"Оплатить сейчас ({price:.0f} ₽/мес)", callback_data="pay:month")
     if extend:
         builder.button(text="Продлить подписку", callback_data="pay:month")
     if pay_now or extend:
@@ -151,7 +151,8 @@ def admin_panel_kb() -> InlineKeyboardBuilder:
     builder.button(text="📊 Статистика бота", callback_data="admin:stats")
     builder.button(text="📥 Выгрузить в Excel", callback_data="admin:export")
     builder.button(text="👥 Список пользователей", callback_data="admin:users")
+    builder.button(text="💰 Цена подписки", callback_data="admin:price")
     builder.button(text="📢 Рассылка", callback_data="admin:broadcast")
     builder.button(text="🔙 Назад", callback_data="admin:back")
-    builder.adjust(1, 1, 1, 1, 1)
+    builder.adjust(1, 1, 1, 1, 1, 1)
     return builder

@@ -13,7 +13,7 @@ from app.handlers.weight import WeightStates
 from app.handlers.calories import CalorieStates
 from app.services.access import (
     PRODUCT_DESCRIPTION,
-    PRODUCT_PRICE,
+    get_product_price_text,
     access_status_display,
 )
 from app.utils.keyboards import main_menu_kb, schedule_mode_kb, subscription_kb
@@ -170,14 +170,17 @@ async def menu_handler(
         status_text, pay_now, extend = access_status_display(
             user, query.from_user.id, config, tz
         )
+        product_price = await get_product_price_text(db)
         text = (
             "📋 <b>Подписка</b>\n\n"
             f"🔐 <b>Доступ:</b> {status_text}\n\n"
             f"{PRODUCT_DESCRIPTION}\n\n"
-            f"{PRODUCT_PRICE}\n\n"
+            f"{product_price}\n\n"
             "Подробнее — /tariff"
         )
-        kb = subscription_kb(pay_now=pay_now, extend=extend)
+        from app.services.access import get_subscription_price_rub
+        price = await get_subscription_price_rub(db)
+        kb = subscription_kb(pay_now=pay_now, extend=extend, price=price)
         if pay_now or extend:
             await query.message.answer(text, reply_markup=kb.as_markup())
         else:

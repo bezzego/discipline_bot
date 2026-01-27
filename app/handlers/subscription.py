@@ -1,4 +1,4 @@
-"""Оплата подписки (пока симуляция)."""
+"""Оплата подписки через ЮMoney."""
 
 from __future__ import annotations
 
@@ -15,23 +15,27 @@ from app.db.database import Database
 from app.db import queries
 from app.services.access import (
     PRODUCT_DESCRIPTION,
-    PRODUCT_PRICE,
+    get_product_price_text,
+    get_subscription_price_rub,
     TRIAL_DAYS,
     access_status_display,
-    subscription_end_after_months,
 )
+from app.services.payment import create_payment_link
 from app.utils.keyboards import main_menu_kb, paywall_kb, subscription_kb
 
 logger = logging.getLogger(__name__)
 
 router = Router()
 
-TARIFF_BASE = (
-    "📋 <b>Описание и стоимость товаров/услуг</b>\n\n"
-    f"{PRODUCT_DESCRIPTION}\n\n"
-    f"{PRODUCT_PRICE}\n\n"
-    f"🆓 Бесплатный период: <b>{TRIAL_DAYS} дней</b>. Затем — подписка по указанной стоимости."
-)
+async def get_tariff_base_text(db: Database) -> str:
+    """Получить базовый текст тарифа с актуальной ценой."""
+    product_price = await get_product_price_text(db)
+    return (
+        "📋 <b>Описание и стоимость товаров/услуг</b>\n\n"
+        f"{PRODUCT_DESCRIPTION}\n\n"
+        f"{product_price}\n\n"
+        f"🆓 Бесплатный период: <b>{TRIAL_DAYS} дней</b>. Затем — подписка по указанной стоимости."
+    )
 
 
 @router.message(Command("tariff"))
@@ -42,18 +46,19 @@ async def tariff_command(
     config: Config,
 ) -> None:
     """Показать описание и стоимость; персональный статус + «Оплатить сейчас» при триале."""
+    tariff_base = await get_tariff_base_text(db)
     if message.from_user is None:
-        await message.answer(TARIFF_BASE)
+        await message.answer(tariff_base)
         return
     user = await queries.get_user_by_tg_id(db, message.from_user.id)
     if not user:
-        await message.answer(TARIFF_BASE)
+        await message.answer(tariff_base)
         return
     status_text, pay_now, extend = access_status_display(
         user, message.from_user.id, config, tz
     )
-    text = f"🔐 <b>Ваш статус:</b> {status_text}\n\n{TARIFF_BASE}"
-    kb = subscription_kb(pay_now=pay_now, extend=extend)
+    text = f"🔐 <b>Ваш статус:</b> {status_text}\n\n{tariff_base}"
+    kb = subscription_kb(pay_now=pay_now, extend=extend, price=await get_subscription_price_rub(db))
     if pay_now or extend:
         await message.answer(text, reply_markup=kb.as_markup())
     else:
@@ -67,6 +72,7 @@ async def pay_handler(
     tz: ZoneInfo,
     config: Config,
 ) -> None:
+    """Создать платеж через ЮMoney."""
     if query.data is None or query.message is None or query.from_user is None:
         return
     if not query.data.startswith("pay:month"):
@@ -78,18 +84,61 @@ async def pay_handler(
         await query.answer("Сначала выполните /start", show_alert=True)
         return
 
-    now = datetime.now(tz)
-    end = subscription_end_after_months(now)
-    await queries.set_subscription_ends_at(db, int(user["id"]), end)
-    logger.info(f"💰 Подписка оформлена (симуляция): user_id={user['id']}, tg_id={query.from_user.id}, до {end}")
+    # Проверяем, есть ли настройки ЮMoney
+    if not config.yoomoney_shop_id or not config.yoomoney_secret_key:
+        await query.answer("⚠️ Платежная система не настроена", show_alert=True)
+        logger.error("❌ ЮMoney не настроен: отсутствуют YOOMONEY_SHOP_ID или YOOMONEY_SECRET_KEY")
+        return
 
-    await query.message.edit_text(
-        "✅ <b>Оплата прошла успешно!</b>\n\n"
-        "Доступ открыт на <b>30 дней</b>. Можете пользоваться ботом без ограничений.",
-        reply_markup=None,
-    )
-    await query.message.answer(
-        "Главное меню:",
-        reply_markup=main_menu_kb(config.admin_ids, query.from_user.id).as_markup(),
-    )
-    await query.answer()
+    try:
+        # Получаем актуальную цену из БД
+        price = await get_subscription_price_rub(db)
+        
+        # Создаем платеж с возможностью рекуррентных платежей
+        is_recurring = True  # Включаем рекуррентные платежи по умолчанию
+        return_url = f"https://t.me/{query.message.bot.username}" if query.message.bot.username else "https://t.me"
+        
+        payment_id, payment_url = await create_payment_link(
+            db=db,
+            user_id=int(user["id"]),
+            tg_id=query.from_user.id,
+            amount=price,
+            description="Подписка Discipline Bot (1 месяц)",
+            return_url=return_url,
+            tz=tz,
+            config=config,
+            is_recurring=is_recurring,
+        )
+
+        await query.message.edit_text(
+            "💳 <b>Оплата подписки</b>\n\n"
+            f"Сумма: <b>{price:.0f} ₽</b>\n\n"
+            "Нажмите на кнопку ниже для перехода к оплате.\n\n"
+            "После успешной оплаты доступ откроется автоматически.\n\n"
+            "💡 <b>Рекуррентные платежи включены:</b> подписка будет продлеваться автоматически каждый месяц.",
+            reply_markup=None,
+        )
+
+        from aiogram.utils.keyboard import InlineKeyboardBuilder
+        from aiogram.types import WebAppInfo
+        
+        kb = InlineKeyboardBuilder()
+        # Используем WebApp для открытия в мини-приложении Telegram
+        kb.button(text="💳 Оплатить", web_app=WebAppInfo(url=payment_url))
+        kb.button(text="◀️ Отмена", callback_data="menu:back")
+        kb.adjust(1, 1)
+
+        await query.message.answer(
+            "Нажмите кнопку ниже для оплаты в мини-приложении:",
+            reply_markup=kb.as_markup(),
+        )
+        await query.answer()
+
+        logger.info(
+            f"💰 Платеж создан: payment_id={payment_id}, user_id={user['id']}, "
+            f"tg_id={query.from_user.id}, amount={price}"
+        )
+
+    except Exception as e:
+        logger.error(f"❌ Ошибка при создании платежа: {e}", exc_info=True)
+        await query.answer("❌ Ошибка при создании платежа. Попробуйте позже.", show_alert=True)

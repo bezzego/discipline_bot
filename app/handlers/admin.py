@@ -17,6 +17,7 @@ from openpyxl.utils import get_column_letter
 from app.config import Config
 from app.db.database import Database
 from app.db import queries
+from app.services.access import get_subscription_price_rub
 from app.utils.keyboards import admin_panel_kb, main_menu_kb
 
 logger = logging.getLogger(__name__)
@@ -31,6 +32,10 @@ def is_admin(user_id: int, config: Config) -> bool:
 
 class BroadcastStates(StatesGroup):
     waiting_message = State()
+
+
+class PriceStates(StatesGroup):
+    waiting_price = State()
 
 
 @router.callback_query(F.data == "menu:admin")
@@ -433,6 +438,108 @@ async def admin_users_handler(
         logger.error(f"Ошибка при получении списка пользователей: {e}", exc_info=True)
         await query.message.edit_text(
             "❌ <b>Ошибка при получении списка пользователей</b>\n\n"
+            f"Детали: {str(e)}",
+            reply_markup=admin_panel_kb().as_markup(),
+        )
+
+
+@router.callback_query(F.data == "admin:price")
+async def admin_price_handler(
+    query: CallbackQuery,
+    config: Config,
+    db: Database,
+    state: FSMContext,
+) -> None:
+    """Управление ценой подписки"""
+    if query.from_user is None or query.message is None:
+        return
+    
+    if not is_admin(query.from_user.id, config):
+        await query.answer("❌ У вас нет доступа", show_alert=True)
+        return
+    
+    await query.answer()
+    
+    try:
+        current_price = await get_subscription_price_rub(db)
+        await query.message.edit_text(
+            "💰 <b>Управление ценой подписки</b>\n\n"
+            f"Текущая цена: <b>{current_price:.0f} ₽</b>\n\n"
+            "Введите новую цену (в рублях, только число):\n\n"
+            "Для отмены отправьте /cancel",
+            reply_markup=None,
+        )
+        await state.set_state(PriceStates.waiting_price)
+    except Exception as e:
+        logger.error(f"Ошибка при получении цены: {e}", exc_info=True)
+        await query.message.edit_text(
+            "❌ <b>Ошибка при получении цены</b>\n\n"
+            f"Детали: {str(e)}",
+            reply_markup=admin_panel_kb().as_markup(),
+        )
+
+
+@router.message(PriceStates.waiting_price)
+async def admin_price_set(
+    message: Message,
+    config: Config,
+    db: Database,
+    state: FSMContext,
+) -> None:
+    """Установка новой цены подписки"""
+    if message.from_user is None or message.text is None:
+        return
+    
+    if not is_admin(message.from_user.id, config):
+        await message.answer("❌ У вас нет доступа")
+        await state.clear()
+        return
+    
+    if message.text.startswith("/cancel"):
+        await state.clear()
+        await message.answer("❌ Изменение цены отменено", reply_markup=admin_panel_kb().as_markup())
+        return
+    
+    try:
+        new_price = float(message.text.strip().replace(",", "."))
+        if new_price <= 0:
+            await message.answer(
+                "❌ Цена должна быть больше нуля.\n\n"
+                "Попробуйте еще раз или отправьте /cancel для отмены."
+            )
+            return
+        
+        if new_price > 100000:
+            await message.answer(
+                "❌ Цена слишком большая (максимум 100000 ₽).\n\n"
+                "Попробуйте еще раз или отправьте /cancel для отмены."
+            )
+            return
+        
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+        tz = ZoneInfo("Europe/Moscow")
+        await queries.set_subscription_price(db, new_price, datetime.now(tz))
+        
+        logger.info(f"💰 Цена подписки изменена админом {message.from_user.id}: {new_price} ₽")
+        
+        await state.clear()
+        await message.answer(
+            f"✅ <b>Цена подписки обновлена!</b>\n\n"
+            f"Новая цена: <b>{new_price:.0f} ₽</b>\n\n"
+            "Изменения вступят в силу для всех новых платежей.",
+            reply_markup=admin_panel_kb().as_markup(),
+        )
+    except ValueError:
+        await message.answer(
+            "❌ Неверный формат. Введите число (например: 299 или 350.5).\n\n"
+            "Для отмены отправьте /cancel"
+        )
+    except Exception as e:
+        logger.error(f"Ошибка при установке цены: {e}", exc_info=True)
+        await state.clear()
+        await message.answer(
+            f"❌ <b>Ошибка при установке цены</b>\n\n"
             f"Детали: {str(e)}",
             reply_markup=admin_panel_kb().as_markup(),
         )

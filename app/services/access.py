@@ -1,5 +1,5 @@
 """
-Проверка доступа: триал 5 дней, подписка 299₽/мес, админы всегда бесплатно.
+Проверка доступа: триал 5 дней, подписка (цена настраивается), админы всегда бесплатно.
 """
 
 from __future__ import annotations
@@ -9,10 +9,12 @@ from zoneinfo import ZoneInfo
 
 from app.config import Config
 from app.db.database import Database
+from app.db import queries
 
 TRIAL_DAYS = 5
 SUBSCRIPTION_MONTHS = 1
-SUBSCRIPTION_PRICE_RUB = 299
+# Значение по умолчанию (используется только если БД недоступна)
+DEFAULT_SUBSCRIPTION_PRICE_RUB = 299.0
 
 # Описание и стоимость товаров/услуг (обязательно для размещения)
 PRODUCT_DESCRIPTION = (
@@ -20,7 +22,20 @@ PRODUCT_DESCRIPTION = (
     "Включено: отслеживание тренировок, веса и калорий; расчёт нормы калорий и ИМТ по формуле Mifflin–St Jeor; "
     "расписание тренировок; отчёты и статистика; напоминания о тренировках и взвешивании."
 )
-PRODUCT_PRICE = f"<b>Стоимость:</b> {SUBSCRIPTION_PRICE_RUB} ₽ (российских рублей) в месяц."
+
+
+async def get_subscription_price_rub(db: Database) -> float:
+    """Получить цену подписки из БД."""
+    try:
+        return await queries.get_subscription_price(db)
+    except Exception:
+        return DEFAULT_SUBSCRIPTION_PRICE_RUB
+
+
+async def get_product_price_text(db: Database) -> str:
+    """Получить текст с ценой подписки."""
+    price = await get_subscription_price_rub(db)
+    return f"<b>Стоимость:</b> {price:.0f} ₽ (российских рублей) в месяц."
 
 
 def is_admin(tg_id: int, config: Config) -> bool:

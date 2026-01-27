@@ -16,7 +16,7 @@ from app.db.database import Database, init_db
 from app.db import queries
 from app.handlers import menu, start, schedule, workouts, weight, reports, profile, admin, calories, subscription
 from app.scheduler import create_scheduler, schedule_global_jobs, load_all_schedules
-from app.services.access import has_access, is_admin, PRODUCT_DESCRIPTION, PRODUCT_PRICE
+from app.services.access import has_access, is_admin, PRODUCT_DESCRIPTION, get_product_price_text
 from app.utils.keyboards import paywall_kb
 
 
@@ -97,13 +97,14 @@ class ContextMiddleware(BaseMiddleware):
         return await handler(event, data)
 
 
-def _paywall_text() -> str:
+async def _paywall_text(db: Database) -> str:
+    product_price = await get_product_price_text(db)
     return (
         "⏱ <b>Бесплатный период (5 дней) закончился.</b>\n\n"
         "Оформите подписку:\n\n"
         f"{PRODUCT_DESCRIPTION}\n\n"
-        f"{PRODUCT_PRICE}\n\n"
-        "Нажмите кнопку ниже (система оплаты пока не подключена — доступ откроется сразу)."
+        f"{product_price}\n\n"
+        "Нажмите кнопку ниже для оплаты."
     )
 
 
@@ -151,8 +152,10 @@ class AccessMiddleware(BaseMiddleware):
         if await has_access(db, tg_id, u, config, tz):
             return await handler(event, data)
 
-        kb = paywall_kb().as_markup()
-        text = _paywall_text()
+        from app.services.access import get_subscription_price_rub
+        price = await get_subscription_price_rub(db)
+        kb = paywall_kb(price=price).as_markup()
+        text = await _paywall_text(db)
         if isinstance(event, CallbackQuery):
             await event.answer()
             await event.message.answer(text, reply_markup=kb)
@@ -186,6 +189,10 @@ async def main() -> None:
 
         bot = create_bot(config)
         logger.info("✅ Telegram бот создан")
+
+        # Устанавливаем экземпляр бота для отправки уведомлений о платежах
+        from app.services.payment import set_bot_instance
+        set_bot_instance(bot)
         
         scheduler = create_scheduler(tz)
         logger.info("✅ Планировщик задач создан")
@@ -209,8 +216,8 @@ async def main() -> None:
         dp.include_router(subscription.router)
         logger.info("✅ Все роутеры подключены: start, profile, menu, schedule, workouts, weight, calories, reports, admin, subscription")
 
-        schedule_global_jobs(scheduler, db, bot, tz)
-        logger.info("✅ Глобальные задачи запланированы (еженедельное взвешивание, месячные отчеты)")
+        schedule_global_jobs(scheduler, db, bot, tz, config)
+        logger.info("✅ Глобальные задачи запланированы (еженедельное взвешивание, месячные отчеты, проверка платежей, рекуррентные платежи)")
         
         await load_all_schedules(scheduler, db, bot, tz)
         logger.info("✅ Расписания всех пользователей загружены")

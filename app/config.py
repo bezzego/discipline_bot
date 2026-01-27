@@ -18,6 +18,9 @@ class Config:
     timezone: str
     log_level: str
     admin_ids: list[int]
+    yoomoney_shop_id: str
+    yoomoney_secret_key: str
+    yoomoney_test_mode: bool = True
 
 
 def load_config() -> Config:
@@ -38,10 +41,22 @@ def load_config() -> Config:
         except ValueError:
             admin_ids = []
     
+    # Настройки ЮMoney
+    yoomoney_shop_id = os.getenv("YOOMONEY_SHOP_ID", "").strip()
+    yoomoney_secret_key = os.getenv("YOOMONEY_SECRET_KEY", "").strip()
+    yoomoney_test_mode = os.getenv("YOOMONEY_TEST_MODE", "true").strip().lower() == "true"
+    
+    if not yoomoney_shop_id or not yoomoney_secret_key:
+        import warnings
+        warnings.warn("YOOMONEY_SHOP_ID or YOOMONEY_SECRET_KEY not set. Payment features will not work.")
+    
     return Config(
         bot_token=bot_token,
         db_path=db_path,
         timezone=timezone,
         log_level=log_level,
         admin_ids=admin_ids,
+        yoomoney_shop_id=yoomoney_shop_id,
+        yoomoney_secret_key=yoomoney_secret_key,
+        yoomoney_test_mode=yoomoney_test_mode,
     )

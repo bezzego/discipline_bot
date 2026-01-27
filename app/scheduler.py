@@ -13,6 +13,7 @@ logger = logging.getLogger(__name__)
 
 from app.db.database import Database
 from app.db import queries
+from app.config import Config
 from app.services.reminders import (
     send_workout_reminder,
     ask_workout_confirmation,
@@ -20,6 +21,7 @@ from app.services.reminders import (
 )
 from app.services.analytics import build_monthly_report, previous_month_range
 from app.services.discipline import is_week_allowed
+from app.services.payment import check_pending_payments, process_recurring_payments
 from app.utils.charts import build_weight_chart
 
 
@@ -294,7 +296,17 @@ def schedule_user_jobs(
     logger.info(f"✅ Задачи для пользователя {user_id} созданы: всего {total_jobs} задач ({len(schedule)} записей расписания × ~8 задач на запись)")
 
 
-def schedule_global_jobs(scheduler: AsyncIOScheduler, db: Database, bot: Bot, tz: ZoneInfo) -> None:
+async def _check_pending_payments_job(db: Database, tz: ZoneInfo, config: Config) -> None:
+    """Проверка статусов pending платежей."""
+    await check_pending_payments(db=db, tz=tz, config=config)
+
+
+async def _recurring_payments_job(bot: Bot, db: Database, tz: ZoneInfo, config: Config) -> None:
+    """Обработка рекуррентных платежей."""
+    await process_recurring_payments(db=db, bot=bot, tz=tz, config=config)
+
+
+def schedule_global_jobs(scheduler: AsyncIOScheduler, db: Database, bot: Bot, tz: ZoneInfo, config: Config) -> None:
     logger.info("📅 Настройка глобальных задач планировщика")
     
     scheduler.add_job(
@@ -314,6 +326,25 @@ def schedule_global_jobs(scheduler: AsyncIOScheduler, db: Database, bot: Bot, tz
         replace_existing=True,
     )
     logger.info("✅ Задача 'Месячный отчет' запланирована: 1-го числа каждого месяца в 09:00")
+    
+    # Проверка pending платежей каждую минуту
+    scheduler.add_job(
+        _check_pending_payments_job,
+        CronTrigger(minute="*", timezone=tz),  # Каждую минуту
+        id="global:check-pending-payments",
+        kwargs={"db": db, "tz": tz, "config": config},
+        replace_existing=True,
+    )
+    logger.info("✅ Задача 'Проверка pending платежей' запланирована: каждую минуту")
+    
+    scheduler.add_job(
+        _recurring_payments_job,
+        CronTrigger(hour=2, minute=0, timezone=tz),  # Каждый день в 02:00
+        id="global:recurring-payments",
+        kwargs={"bot": bot, "db": db, "tz": tz, "config": config},
+        replace_existing=True,
+    )
+    logger.info("✅ Задача 'Рекуррентные платежи' запланирована: каждый день в 02:00")
 
 
 async def load_all_schedules(scheduler: AsyncIOScheduler, db: Database, bot: Bot, tz: ZoneInfo) -> None:

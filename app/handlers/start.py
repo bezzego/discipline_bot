@@ -31,7 +31,7 @@ from app.utils.keyboards import (
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from app.utils.parsing import parse_weight, parse_time, parse_height_cm, parse_birth_year, format_schedule
 from app.db.models import WeightEntry
-from app.services.access import has_access, PRODUCT_DESCRIPTION, PRODUCT_PRICE
+from app.services.access import has_access, PRODUCT_DESCRIPTION, get_product_price_text
 from app.utils.keyboards import paywall_kb
 
 
@@ -62,13 +62,14 @@ class StartStates(StatesGroup):
     waiting_week_parity = State()
 
 
-def _paywall_start_text() -> str:
+async def _paywall_start_text(db: Database) -> str:
+    product_price = await get_product_price_text(db)
     return (
         "⏱ <b>Бесплатный период (5 дней) закончился.</b>\n\n"
         "Оформите подписку:\n\n"
         f"{PRODUCT_DESCRIPTION}\n\n"
-        f"{PRODUCT_PRICE}\n\n"
-        "Нажмите кнопку ниже (система оплаты пока не подключена — доступ откроется сразу)."
+        f"{product_price}\n\n"
+        "Нажмите кнопку ниже для оплаты."
     )
 
 
@@ -86,7 +87,10 @@ async def start_command(message: Message, state: FSMContext, db: Database, tz: Z
     if existing_user:
         if not await has_access(db, tg_id, existing_user, config, tz):
             logger.info(f"🔒 Доступ закрыт, paywall: tg_id={tg_id}")
-            await message.answer(_paywall_start_text(), reply_markup=paywall_kb().as_markup())
+            from app.services.access import get_subscription_price_rub
+            price = await get_subscription_price_rub(db)
+            paywall_text = await _paywall_start_text(db)
+            await message.answer(paywall_text, reply_markup=paywall_kb(price=price).as_markup())
             return
         logger.info(f"ℹ️ Пользователь {tg_id} уже зарегистрирован, показываем меню")
         await message.answer(

@@ -159,3 +159,63 @@ async def init_db(db: Database) -> None:
 
     if not await _column_exists(db, "users", "subscription_ends_at"):
         await db.execute("ALTER TABLE users ADD COLUMN subscription_ends_at TEXT;")
+
+    # Таблица платежей
+    await db.execute(
+        """
+        CREATE TABLE IF NOT EXISTS payments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            payment_id TEXT NOT NULL UNIQUE,
+            amount REAL NOT NULL,
+            currency TEXT NOT NULL DEFAULT 'RUB',
+            status TEXT NOT NULL,
+            payment_method_id TEXT,
+            created_at TEXT NOT NULL,
+            paid_at TEXT,
+            FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+        );
+        """
+    )
+    await db.execute("CREATE INDEX IF NOT EXISTS idx_payments_user_id ON payments(user_id);")
+    await db.execute("CREATE INDEX IF NOT EXISTS idx_payments_payment_id ON payments(payment_id);")
+    await db.execute("CREATE INDEX IF NOT EXISTS idx_payments_status ON payments(status);")
+
+    # Таблица рекуррентных подписок
+    await db.execute(
+        """
+        CREATE TABLE IF NOT EXISTS recurring_subscriptions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL UNIQUE,
+            payment_method_id TEXT NOT NULL,
+            amount REAL NOT NULL,
+            currency TEXT NOT NULL DEFAULT 'RUB',
+            next_payment_date TEXT NOT NULL,
+            is_active INTEGER NOT NULL DEFAULT 1,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+        );
+        """
+    )
+    await db.execute("CREATE INDEX IF NOT EXISTS idx_recurring_user_id ON recurring_subscriptions(user_id);")
+    await db.execute("CREATE INDEX IF NOT EXISTS idx_recurring_next_payment ON recurring_subscriptions(next_payment_date);")
+
+    # Таблица настроек (глобальные настройки бота)
+    await db.execute(
+        """
+        CREATE TABLE IF NOT EXISTS settings (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        """
+    )
+    
+    # Инициализируем цену подписки по умолчанию, если её нет
+    existing_price = await db.fetch_one("SELECT value FROM settings WHERE key = 'subscription_price_rub';")
+    if not existing_price:
+        from datetime import datetime
+        await db.execute(
+            "INSERT INTO settings (key, value, updated_at) VALUES ('subscription_price_rub', '299', ?);",
+            (datetime.now().isoformat(),)
+        )

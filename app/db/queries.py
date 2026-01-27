@@ -223,3 +223,155 @@ async def get_user_by_id(db: Database, user_id: int) -> Optional[dict]:
 async def set_subscription_ends_at(db: Database, user_id: int, date_iso: str) -> None:
     """Установить дату окончания подписки (YYYY-MM-DD)."""
     await db.execute("UPDATE users SET subscription_ends_at = ? WHERE id = ?;", (date_iso, user_id))
+
+
+async def create_payment(
+    db: Database,
+    user_id: int,
+    payment_id: str,
+    amount: float,
+    currency: str,
+    status: str,
+    payment_method_id: str | None,
+    created_at: datetime,
+    paid_at: datetime | None = None,
+) -> None:
+    """Создать запись о платеже."""
+    await db.execute(
+        """
+        INSERT INTO payments (user_id, payment_id, amount, currency, status, payment_method_id, created_at, paid_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+        """,
+        (
+            user_id,
+            payment_id,
+            amount,
+            currency,
+            status,
+            payment_method_id,
+            created_at.isoformat(),
+            paid_at.isoformat() if paid_at else None,
+        ),
+    )
+
+
+async def update_payment_status(
+    db: Database,
+    payment_id: str,
+    status: str,
+    paid_at: datetime | None = None,
+) -> None:
+    """Обновить статус платежа."""
+    await db.execute(
+        "UPDATE payments SET status = ?, paid_at = ? WHERE payment_id = ?;",
+        (status, paid_at.isoformat() if paid_at else None, payment_id),
+    )
+
+
+async def get_payment_by_id(db: Database, payment_id: str) -> Optional[dict]:
+    """Получить платеж по payment_id."""
+    row = await db.fetch_one("SELECT * FROM payments WHERE payment_id = ?;", (payment_id,))
+    return dict(row) if row else None
+
+
+async def get_pending_payments(db: Database) -> list[dict]:
+    """Получить все платежи со статусом pending или waiting_for_capture."""
+    rows = await db.fetch_all(
+        "SELECT * FROM payments WHERE status IN ('pending', 'waiting_for_capture');"
+    )
+    return [dict(row) for row in rows]
+
+
+async def create_recurring_subscription(
+    db: Database,
+    user_id: int,
+    payment_method_id: str,
+    amount: float,
+    currency: str,
+    next_payment_date: str,
+    created_at: datetime,
+) -> None:
+    """Создать рекуррентную подписку."""
+    await db.execute(
+        """
+        INSERT OR REPLACE INTO recurring_subscriptions 
+        (user_id, payment_method_id, amount, currency, next_payment_date, is_active, created_at)
+        VALUES (?, ?, ?, ?, ?, 1, ?);
+        """,
+        (
+            user_id,
+            payment_method_id,
+            amount,
+            currency,
+            next_payment_date,
+            created_at.isoformat(),
+        ),
+    )
+
+
+async def get_recurring_subscription(db: Database, user_id: int) -> Optional[dict]:
+    """Получить активную рекуррентную подписку пользователя."""
+    row = await db.fetch_one(
+        "SELECT * FROM recurring_subscriptions WHERE user_id = ? AND is_active = 1;",
+        (user_id,),
+    )
+    return dict(row) if row else None
+
+
+async def update_recurring_subscription_next_payment(
+    db: Database,
+    user_id: int,
+    next_payment_date: str,
+) -> None:
+    """Обновить дату следующего платежа."""
+    await db.execute(
+        "UPDATE recurring_subscriptions SET next_payment_date = ? WHERE user_id = ? AND is_active = 1;",
+        (next_payment_date, user_id),
+    )
+
+
+async def deactivate_recurring_subscription(db: Database, user_id: int) -> None:
+    """Деактивировать рекуррентную подписку."""
+    await db.execute(
+        "UPDATE recurring_subscriptions SET is_active = 0 WHERE user_id = ?;",
+        (user_id,),
+    )
+
+
+async def get_recurring_subscriptions_due(db: Database, date_iso: str) -> list[dict]:
+    """Получить рекуррентные подписки, у которых наступила дата следующего платежа."""
+    rows = await db.fetch_all(
+        "SELECT * FROM recurring_subscriptions WHERE is_active = 1 AND next_payment_date <= ?;",
+        (date_iso,),
+    )
+    return [dict(row) for row in rows]
+
+
+async def get_setting(db: Database, key: str) -> Optional[str]:
+    """Получить значение настройки по ключу."""
+    row = await db.fetch_one("SELECT value FROM settings WHERE key = ?;", (key,))
+    return row["value"] if row else None
+
+
+async def set_setting(db: Database, key: str, value: str, updated_at: datetime) -> None:
+    """Установить значение настройки."""
+    await db.execute(
+        "INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES (?, ?, ?);",
+        (key, value, updated_at.isoformat()),
+    )
+
+
+async def get_subscription_price(db: Database) -> float:
+    """Получить цену подписки из настроек (по умолчанию 299)."""
+    price_str = await get_setting(db, "subscription_price_rub")
+    if price_str:
+        try:
+            return float(price_str)
+        except (ValueError, TypeError):
+            pass
+    return 299.0  # Значение по умолчанию
+
+
+async def set_subscription_price(db: Database, price: float, updated_at: datetime) -> None:
+    """Установить цену подписки."""
+    await set_setting(db, "subscription_price_rub", str(price), updated_at)
