@@ -6,6 +6,7 @@ from zoneinfo import ZoneInfo
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
+from apscheduler.triggers.interval import IntervalTrigger
 from aiogram import Bot
 from aiogram.types import BufferedInputFile
 
@@ -327,15 +328,15 @@ def schedule_global_jobs(scheduler: AsyncIOScheduler, db: Database, bot: Bot, tz
     )
     logger.info("✅ Задача 'Месячный отчет' запланирована: 1-го числа каждого месяца в 09:00")
     
-    # Проверка pending платежей каждую минуту
+    # Проверка pending платежей каждые 25 секунд
     scheduler.add_job(
         _check_pending_payments_job,
-        CronTrigger(minute="*", timezone=tz),  # Каждую минуту
+        IntervalTrigger(seconds=25, timezone=tz),
         id="global:check-pending-payments",
         kwargs={"db": db, "tz": tz, "config": config},
         replace_existing=True,
     )
-    logger.info("✅ Задача 'Проверка pending платежей' запланирована: каждую минуту")
+    logger.info("✅ Задача 'Проверка pending платежей' запланирована: каждые 25 секунд")
     
     scheduler.add_job(
         _recurring_payments_job,

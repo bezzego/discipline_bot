@@ -18,7 +18,8 @@ class Config:
     timezone: str
     log_level: str
     admin_ids: list[int]
-    yoomoney_shop_id: str
+    yoomoney_wallet_id: str  # Номер кошелька ЮMoney
+    yoomoney_api_token: str
     yoomoney_secret_key: str
     yoomoney_test_mode: bool = True
 
@@ -42,13 +43,14 @@ def load_config() -> Config:
             admin_ids = []
     
     # Настройки ЮMoney
-    yoomoney_shop_id = os.getenv("YOOMONEY_SHOP_ID", "").strip()
+    yoomoney_wallet_id = os.getenv("YOOMONEY_WALLET_ID", "").strip()
+    yoomoney_api_token = os.getenv("YOOMONEY_API_TOKEN", "").strip()
     yoomoney_secret_key = os.getenv("YOOMONEY_SECRET_KEY", "").strip()
     yoomoney_test_mode = os.getenv("YOOMONEY_TEST_MODE", "true").strip().lower() == "true"
     
-    if not yoomoney_shop_id or not yoomoney_secret_key:
+    if not yoomoney_wallet_id or not yoomoney_api_token:
         import warnings
-        warnings.warn("YOOMONEY_SHOP_ID or YOOMONEY_SECRET_KEY not set. Payment features will not work.")
+        warnings.warn("YOOMONEY_WALLET_ID or YOOMONEY_API_TOKEN not set. Payment features will not work.")
     
     return Config(
         bot_token=bot_token,
@@ -56,7 +58,8 @@ def load_config() -> Config:
         timezone=timezone,
         log_level=log_level,
         admin_ids=admin_ids,
-        yoomoney_shop_id=yoomoney_shop_id,
+        yoomoney_wallet_id=yoomoney_wallet_id,
+        yoomoney_api_token=yoomoney_api_token,
         yoomoney_secret_key=yoomoney_secret_key,
         yoomoney_test_mode=yoomoney_test_mode,
     )

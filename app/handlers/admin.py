@@ -545,6 +545,80 @@ async def admin_price_set(
         )
 
 
+@router.callback_query(F.data == "admin:payments")
+async def admin_payments_handler(
+    query: CallbackQuery,
+    config: Config,
+    db: Database,
+    tz: ZoneInfo,
+) -> None:
+    """Список платежей и возможность подтвердить вручную"""
+    if query.from_user is None or query.message is None:
+        return
+    
+    if not is_admin(query.from_user.id, config):
+        await query.answer("❌ У вас нет доступа", show_alert=True)
+        return
+    
+    await query.answer("💳 Загрузка списка платежей...")
+    
+    try:
+        # Получаем последние 20 pending платежей
+        pending_payments = await db.fetch_all(
+            "SELECT * FROM payments WHERE status = 'pending' ORDER BY created_at DESC LIMIT 20"
+        )
+        
+        # Получаем последние 10 успешных платежей
+        succeeded_payments = await db.fetch_all(
+            "SELECT * FROM payments WHERE status = 'succeeded' ORDER BY paid_at DESC LIMIT 10"
+        )
+        
+        text = "💳 <b>Платежи</b>\n\n"
+        
+        if pending_payments:
+            text += f"⏳ <b>Ожидают подтверждения ({len(pending_payments)}):</b>\n"
+            for i, payment_row in enumerate(pending_payments[:10], 1):
+                payment = dict(payment_row)
+                user_id = payment["user_id"]
+                amount = payment["amount"]
+                payment_id = payment["payment_id"]
+                created = payment.get("created_at", "")[:16] if payment.get("created_at") else "неизвестно"
+                text += f"{i}. ID: {payment_id[:20]}... | User: {user_id} | {amount} ₽ | {created}\n"
+            
+            if len(pending_payments) > 10:
+                text += f"\n... и еще {len(pending_payments) - 10} платежей\n"
+            
+            text += "\n"
+        else:
+            text += "✅ Нет ожидающих платежей\n\n"
+        
+        if succeeded_payments:
+            text += f"✅ <b>Последние успешные ({len(succeeded_payments)}):</b>\n"
+            for i, payment_row in enumerate(succeeded_payments[:5], 1):
+                payment = dict(payment_row)
+                user_id = payment["user_id"]
+                amount = payment["amount"]
+                paid_at = payment.get("paid_at", "")[:16] if payment.get("paid_at") else "неизвестно"
+                text += f"{i}. User: {user_id} | {amount} ₽ | {paid_at}\n"
+        
+        from aiogram.utils.keyboard import InlineKeyboardBuilder
+        kb = InlineKeyboardBuilder()
+        kb.button(text="🔙 Назад", callback_data="admin:back")
+        kb.adjust(1)
+        
+        await query.message.edit_text(
+            text,
+            reply_markup=kb.as_markup(),
+        )
+    except Exception as e:
+        logger.error(f"Ошибка при получении списка платежей: {e}", exc_info=True)
+        await query.message.edit_text(
+            "❌ <b>Ошибка при получении списка платежей</b>\n\n"
+            f"Детали: {str(e)}",
+            reply_markup=admin_panel_kb().as_markup(),
+        )
+
+
 @router.callback_query(F.data == "admin:broadcast")
 async def admin_broadcast_start(
     query: CallbackQuery,

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from aiogram import Router, F
@@ -21,7 +20,7 @@ from app.services.access import (
     access_status_display,
 )
 from app.services.payment import create_payment_link
-from app.utils.keyboards import main_menu_kb, paywall_kb, subscription_kb
+from app.utils.keyboards import paywall_kb, subscription_kb
 
 logger = logging.getLogger(__name__)
 
@@ -85,18 +84,22 @@ async def pay_handler(
         return
 
     # Проверяем, есть ли настройки ЮMoney
-    if not config.yoomoney_shop_id or not config.yoomoney_secret_key:
+    if not config.yoomoney_wallet_id or not config.yoomoney_api_token:
         await query.answer("⚠️ Платежная система не настроена", show_alert=True)
-        logger.error("❌ ЮMoney не настроен: отсутствуют YOOMONEY_SHOP_ID или YOOMONEY_SECRET_KEY")
+        logger.error("❌ ЮMoney не настроен: отсутствуют YOOMONEY_WALLET_ID или YOOMONEY_API_TOKEN")
         return
 
     try:
         # Получаем актуальную цену из БД
         price = await get_subscription_price_rub(db)
         
+        # Получаем username бота для return_url
+        bot_info = await query.message.bot.get_me()
+        bot_username = bot_info.username if bot_info.username else None
+        return_url = f"https://t.me/{bot_username}" if bot_username else "https://t.me"
+        
         # Создаем платеж с возможностью рекуррентных платежей
         is_recurring = True  # Включаем рекуррентные платежи по умолчанию
-        return_url = f"https://t.me/{query.message.bot.username}" if query.message.bot.username else "https://t.me"
         
         payment_id, payment_url = await create_payment_link(
             db=db,
@@ -115,21 +118,20 @@ async def pay_handler(
             f"Сумма: <b>{price:.0f} ₽</b>\n\n"
             "Нажмите на кнопку ниже для перехода к оплате.\n\n"
             "После успешной оплаты доступ откроется автоматически.\n\n"
-            "💡 <b>Рекуррентные платежи включены:</b> подписка будет продлеваться автоматически каждый месяц.",
+            f"ID платежа: <code>{payment_id}</code>",
             reply_markup=None,
         )
 
         from aiogram.utils.keyboard import InlineKeyboardBuilder
-        from aiogram.types import WebAppInfo
         
         kb = InlineKeyboardBuilder()
-        # Используем WebApp для открытия в мини-приложении Telegram
-        kb.button(text="💳 Оплатить", web_app=WebAppInfo(url=payment_url))
+        # Открываем оплату во внешнем браузере, чтобы страница ЮMoney работала корректно
+        kb.button(text="💳 Оплатить", url=payment_url)
         kb.button(text="◀️ Отмена", callback_data="menu:back")
         kb.adjust(1, 1)
 
         await query.message.answer(
-            "Нажмите кнопку ниже для оплаты в мини-приложении:",
+            "Нажмите кнопку ниже для оплаты. После оплаты доступ откроется автоматически.",
             reply_markup=kb.as_markup(),
         )
         await query.answer()

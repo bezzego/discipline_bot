@@ -282,6 +282,8 @@ async def get_pending_payments(db: Database) -> list[dict]:
     return [dict(row) for row in rows]
 
 
+
+
 async def create_recurring_subscription(
     db: Database,
     user_id: int,

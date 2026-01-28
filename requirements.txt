@@ -5,4 +5,5 @@ pydantic
 python-dotenv
 matplotlib
 openpyxl
-yookassa>=3.0.0
+aiohttp
+yoomoney

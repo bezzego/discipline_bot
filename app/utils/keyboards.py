@@ -152,7 +152,8 @@ def admin_panel_kb() -> InlineKeyboardBuilder:
     builder.button(text="📥 Выгрузить в Excel", callback_data="admin:export")
     builder.button(text="👥 Список пользователей", callback_data="admin:users")
     builder.button(text="💰 Цена подписки", callback_data="admin:price")
+    builder.button(text="💳 Платежи", callback_data="admin:payments")
     builder.button(text="📢 Рассылка", callback_data="admin:broadcast")
     builder.button(text="🔙 Назад", callback_data="admin:back")
-    builder.adjust(1, 1, 1, 1, 1, 1)
+    builder.adjust(1, 1, 1, 1, 1, 1, 1)
     return builder
